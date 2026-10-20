@@ -1,0 +1,7 @@
+faster-whisper>=1.2
+av>=12
+numpy
+tqdm
+# Accelerazione GPU NVIDIA (opzionale, ignorabile se si usa solo la CPU)
+nvidia-cublas-cu12; sys_platform != "darwin"
+nvidia-cudnn-cu12==9.*; sys_platform != "darwin"

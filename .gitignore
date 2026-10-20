@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+*.pyc
+
+# Registrazioni e trascrizioni personali: si tengono solo le cartelle
+PUT AUDIO FILE HERE/*
+!PUT AUDIO FILE HERE/.gitkeep
+TRANSCRIPTIONS/*
+!TRANSCRIPTIONS/.gitkeep

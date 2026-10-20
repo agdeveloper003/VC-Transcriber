@@ -1,9 +1,9 @@
 """
-VC Transcriber - trascrizione locale di videolezioni con faster-whisper.
+VC Transcriber - local transcription of recorded lectures with faster-whisper.
 
-Metti le registrazioni nella cartella "PUT AUDIO FILE HERE" e avvia:
+Put the recordings in the "PUT AUDIO FILE HERE" folder and run:
     python transcribe.py
-Le trascrizioni (.txt con lo stesso nome della registrazione) finiscono in "TRANSCRIPTIONS".
+Transcripts (.txt with the same name as the recording) are saved in "TRANSCRIPTIONS".
 """
 
 from __future__ import annotations
@@ -17,16 +17,16 @@ BASE_DIR = Path(__file__).resolve().parent
 INPUT_DIR = BASE_DIR / "PUT AUDIO FILE HERE"
 OUTPUT_DIR = BASE_DIR / "TRANSCRIPTIONS"
 
-# --- Impostazioni di trascrizione -------------------------------------------
-# large-v3 è il modello Whisper più accurato: in float16 occupa ~5 GB di VRAM.
-# (large-v3-turbo è più veloce ma meno preciso; non esistono Whisper più grandi.)
+# --- Transcription settings --------------------------------------------------
+# large-v3 is the most accurate Whisper model: in float16 it uses ~5 GB of VRAM.
+# (large-v3-turbo is faster but less accurate; there are no larger Whisper models.)
 MODEL = "large-v3"
-LANGUAGE = "it"            # "it", "en", ... oppure None per il riconoscimento automatico
+LANGUAGE = "en"            # "en", "it", ... or None for automatic detection
 BEAM_SIZE = 5
-PARAGRAPH_GAP = 2.0        # pausa (s) oltre la quale nel .txt si va a capo
-INITIAL_PROMPT = None      # es. "TCP, UDP, handshake, Dijkstra" per aiutare con i termini tecnici
+PARAGRAPH_GAP = 2.0        # pause (s) after which a new paragraph starts in the .txt
+INITIAL_PROMPT = None      # e.g. "TCP, UDP, handshake, Dijkstra" to help with technical terms
 
-# Estensioni accettate: audio e video (dai video viene estratta solo la traccia audio).
+# Accepted extensions: audio and video (only the audio track is extracted from videos).
 MEDIA_EXT = {
     ".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg", ".opus", ".wma", ".amr", ".aiff", ".aif",
     ".mp4", ".mkv", ".avi", ".mov", ".webm", ".flv", ".wmv", ".m4v", ".mpg", ".mpeg",
@@ -39,7 +39,7 @@ class StopProcessing(Exception):
 
 
 def register_cuda_dlls() -> None:
-    """Su Windows rende visibili le DLL CUDA installate via pip (nvidia-cublas/cudnn)."""
+    """On Windows, makes the CUDA DLLs installed via pip (nvidia-cublas/cudnn) visible."""
     if os.name != "nt":
         return
     for base in sys.path:
@@ -49,6 +49,17 @@ def register_cuda_dlls() -> None:
         for bin_dir in nvidia_dir.glob("*/bin"):
             os.add_dll_directory(str(bin_dir))
             os.environ["PATH"] = str(bin_dir) + os.pathsep + os.environ.get("PATH", "")
+
+
+def relaunch_in_venv() -> None:
+    """If the script is started with another Python (e.g. `py transcribe.py`), relaunch it
+    with the one in .venv, where the CUDA libraries for the GPU are installed too."""
+    venv_dir = BASE_DIR / ".venv"
+    venv_python = venv_dir / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+    if not venv_python.exists() or Path(sys.prefix).resolve() == venv_dir.resolve():
+        return
+    import subprocess
+    sys.exit(subprocess.call([str(venv_python), str(Path(__file__).resolve()), *sys.argv[1:]]))
 
 
 def has_audio(path: Path) -> bool:
@@ -61,7 +72,7 @@ def has_audio(path: Path) -> bool:
 
 
 def scan_input() -> tuple[list[Path], list[Path]]:
-    """Restituisce (file con audio, file scartati)."""
+    """Returns (files with audio, discarded files)."""
     accepted, discarded = [], []
     for f in sorted(INPUT_DIR.iterdir(), key=lambda p: p.name.lower()):
         if not f.is_file() or f.name.startswith("."):
@@ -74,7 +85,7 @@ def scan_input() -> tuple[list[Path], list[Path]]:
 
 
 def ask(question: str, options: dict[str, str]) -> str:
-    """Chiede finché l'utente non risponde con una delle chiavi di `options`."""
+    """Asks until the user answers with one of the keys of `options`."""
     hint = " / ".join(f"[{k}] {v}" for k, v in options.items())
     while True:
         try:
@@ -83,11 +94,11 @@ def ask(question: str, options: dict[str, str]) -> str:
             raise StopProcessing from None
         if answer in options:
             return answer
-        print("  Risposta non valida, riprova.")
+        print("  Invalid answer, please try again.")
 
 
 def decode_audio(path: Path, sampling_rate: int = 16000):
-    """Estrae la traccia audio (anche da un video) come array float32 mono 16 kHz, in memoria."""
+    """Extracts the audio track (from a video too) as a mono 16 kHz float32 array, in memory."""
     import av
     import numpy as np
 
@@ -101,7 +112,7 @@ def decode_audio(path: Path, sampling_rate: int = 16000):
         for out in resampler.resample(None):
             chunks.append(out.to_ndarray().reshape(-1))
     if not chunks:
-        raise ValueError("traccia audio vuota")
+        raise ValueError("empty audio track")
     return np.concatenate(chunks).astype(np.float32) / 32768.0
 
 
@@ -116,13 +127,25 @@ def load_model():
     from faster_whisper import WhisperModel
 
     if ctranslate2.get_cuda_device_count() > 0:
-        print(f"[*] Carico '{MODEL}' sulla GPU (float16)... "
-              "(al primo avvio viene scaricato, ~3 GB)")
+        print(f"[*] Loading '{MODEL}' on the GPU (float16)... "
+              "(downloaded on first run, ~3 GB)")
         try:
-            return WhisperModel(MODEL, device="cuda", compute_type="float16")
+            model = WhisperModel(MODEL, device="cuda", compute_type="float16")
+            # Test the GPU right away: the CUDA DLLs (cuBLAS/cuDNN) are only loaded here.
+            import numpy as np
+            segments, _ = model.transcribe(np.zeros(16000, dtype=np.float32),
+                                           language="en", vad_filter=False)
+            list(segments)
+            return model
         except Exception as e:
-            print(f"[!] GPU non utilizzabile ({e}). Ripiego sulla CPU.")
-    print(f"[*] Carico '{MODEL}' sulla CPU (int8): sarà molto più lento.")
+            print(f"\n[!] GPU not usable: {e}")
+            print("    Fix: run transcribe.bat (or .venv\\Scripts\\python transcribe.py),\n"
+                  "    or install into the Python in use: "
+                  "pip install nvidia-cublas-cu12 \"nvidia-cudnn-cu12==9.*\"")
+            if ask("Continue on the CPU? (much slower: hours for a long lecture)",
+                   {"y": "yes, use the CPU", "q": "quit"}) == "q":
+                raise StopProcessing
+    print(f"[*] Loading '{MODEL}' on the CPU (int8): this will be much slower.")
     return WhisperModel(MODEL, device="cpu", compute_type="int8")
 
 
@@ -146,7 +169,7 @@ def transcribe_file(model, path: Path, out_path: Path) -> None:
     from tqdm import tqdm
 
     t0 = time.time()
-    print("    Estrazione audio...")
+    print("    Extracting audio...")
     audio = decode_audio(path)
     segments_iter, info = model.transcribe(
         audio,
@@ -156,10 +179,10 @@ def transcribe_file(model, path: Path, out_path: Path) -> None:
         vad_parameters={"min_silence_duration_ms": 500},
         initial_prompt=INITIAL_PROMPT,
     )
-    print(f"    Lingua: {info.language}, durata: {fmt_clock(info.duration)}")
+    print(f"    Language: {info.language}, duration: {fmt_clock(info.duration)}")
 
     segments = []
-    with tqdm(total=round(info.duration, 1), unit="s", desc="    Trascrizione",
+    with tqdm(total=round(info.duration, 1), unit="s", desc="    Transcribing",
               bar_format="{l_bar}{bar}| {n:.0f}/{total:.0f}s [{elapsed}<{remaining}]") as bar:
         for seg in segments_iter:
             segments.append(seg)
@@ -169,14 +192,14 @@ def transcribe_file(model, path: Path, out_path: Path) -> None:
     OUTPUT_DIR.mkdir(exist_ok=True)
     out_path.write_text(to_paragraphs(segments), encoding="utf-8")
     elapsed = time.time() - t0
-    print(f"    Fatto in {fmt_clock(elapsed)} -> {out_path.relative_to(BASE_DIR)}")
+    print(f"    Done in {fmt_clock(elapsed)} -> {out_path.relative_to(BASE_DIR)}")
 
 
 def confirm_file(path: Path) -> bool:
-    """Modalità 'chiedi ogni volta'. True = trascrivi, False = salta, StopProcessing = termina."""
-    if ask(f"\nTrascrivere '{path.name}'?", {"s": "sì", "n": "no"}) == "s":
+    """'Ask every time' mode. True = transcribe, False = skip, StopProcessing = quit."""
+    if ask(f"\nTranscribe '{path.name}'?", {"y": "yes", "n": "no"}) == "y":
         return True
-    if ask("Cosa vuoi fare?", {"s": "salta questo file", "t": "termina"}) == "s":
+    if ask("What do you want to do?", {"s": "skip this file", "q": "quit"}) == "s":
         return False
     raise StopProcessing
 
@@ -187,12 +210,12 @@ def main() -> int:
 
     files, discarded = scan_input()
     for f in discarded:
-        print(f"[-] Scartato (non è un file audio/video con audio): {f.name}")
+        print(f"[-] Discarded (not an audio/video file with audio): {f.name}")
     if not files:
-        print(f"Nessun file audio trovato in '{INPUT_DIR.name}'. Inseriscili lì e riavvia.")
+        print(f"No audio files found in '{INPUT_DIR.name}'. Put them there and run again.")
         return 1
 
-    print(f"\n[*] Trovati {len(files)} file:")
+    print(f"\n[*] Found {len(files)} file(s):")
     for i, f in enumerate(files, 1):
         print(f"    {i}. {f.name}")
 
@@ -201,17 +224,17 @@ def main() -> int:
     try:
         ask_each = False
         if len(files) > 1:
-            ask_each = ask("\nCome vuoi procedere?",
-                           {"1": "trascrivi tutti di seguito",
-                            "2": "chiedi conferma prima di ogni file"}) == "2"
+            ask_each = ask("\nHow do you want to proceed?",
+                           {"1": "transcribe all in a row",
+                            "2": "ask for confirmation before each file"}) == "2"
         for i, f in enumerate(files, 1):
             out_path = OUTPUT_DIR / f"{f.stem}.txt"
             if ask_each and not confirm_file(f):
                 skipped.append(f)
                 continue
             if out_path.exists() and ask(
-                    f"\n'{out_path.name}' esiste già in TRANSCRIPTIONS. Sovrascriverlo?",
-                    {"s": "sì", "n": "no, salta"}) == "n":
+                    f"\n'{out_path.name}' already exists in TRANSCRIPTIONS. Overwrite it?",
+                    {"y": "yes", "n": "no, skip"}) == "n":
                 skipped.append(f)
                 continue
             if model is None:
@@ -221,16 +244,17 @@ def main() -> int:
                 transcribe_file(model, f, out_path)
                 done.append(f)
             except Exception as e:
-                print(f"[X] Errore su {f.name}: {e}")
+                print(f"[X] Error on {f.name}: {e}")
                 failed.append(f)
     except StopProcessing:
-        print("\n[!] Processo terminato su richiesta.")
+        print("\n[!] Process stopped on request.")
     except KeyboardInterrupt:
-        print("\n[!] Interrotto dall'utente.")
+        print("\n[!] Interrupted by the user.")
 
-    print(f"\n[*] Trascritti: {len(done)}  |  Saltati: {len(skipped)}  |  Errori: {len(failed)}")
+    print(f"\n[*] Transcribed: {len(done)}  |  Skipped: {len(skipped)}  |  Errors: {len(failed)}")
     return 1 if failed else 0
 
 
 if __name__ == "__main__":
+    relaunch_in_venv()
     sys.exit(main())

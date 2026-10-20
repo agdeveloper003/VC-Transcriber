@@ -2,7 +2,7 @@
 __pycache__/
 *.pyc
 
-# Registrazioni e trascrizioni personali: si tengono solo le cartelle
+# Personal recordings and transcripts: only the folders are kept
 PUT AUDIO FILE HERE/*
 !PUT AUDIO FILE HERE/.gitkeep
 TRANSCRIPTIONS/*

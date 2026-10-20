@@ -1,37 +1,43 @@
 # VC Transcriber
 
-Trascrizione **completamente in locale** di videolezioni con [faster-whisper](https://github.com/SYSTRAN/faster-whisper) e il modello **Whisper large-v3** (il più accurato della famiglia Whisper). Internet serve solo al primo avvio, per scaricare il modello (~3 GB).
+**Fully local** transcription of recorded lectures with [faster-whisper](https://github.com/SYSTRAN/faster-whisper) and the **Whisper large-v3** model (the most accurate of the Whisper family). An internet connection is only needed on the first run, to download the model (~3 GB).
 
-## Come si usa
+## How to use
 
-1. Metti le registrazioni nella cartella **`PUT AUDIO FILE HERE`**.
-2. Fai doppio clic su **`trascrivi.bat`** (al primo avvio installa tutto da solo).
-3. Se ci sono più file, scegli se trascriverli tutti di seguito o se dare la conferma file per file. Se rifiuti un file, puoi saltarlo o terminare il processo.
-4. Trovi le trascrizioni in **`TRANSCRIPTIONS`**, con lo stesso nome della registrazione: `lezione2.mp3` → `lezione2.txt`.
+1. Put the recordings in the **`PUT AUDIO FILE HERE`** folder.
+2. Double-click **`transcribe.bat`** (on the first run it installs everything by itself).
+3. If there are several files, choose whether to transcribe them all in a row or to confirm each file. If you decline a file, you can skip it or quit the process.
+4. The transcripts are saved in **`TRANSCRIPTIONS`**, with the same name as the recording: `lecture2.mp3` → `lecture2.txt`.
 
-Da terminale:
+From a terminal:
 
 ```bash
-.venv\Scripts\python transcribe.py
+python transcribe.py
 ```
 
-## File accettati
+If a `.venv` folder exists, the script automatically relaunches itself with the Python inside it, where the CUDA libraries for the GPU are installed.
+
+## Accepted files
 
 - **Audio:** mp3, wav, m4a, aac, flac, ogg, opus, wma, amr, aiff
-- **Video:** mp4, mkv, avi, mov, webm, flv, wmv, m4v, mpg, mpeg, ts, mts, m2ts, 3gp, ogv. Viene letta solo la traccia audio, direttamente in memoria, senza bisogno di convertire prima il file.
+- **Video:** mp4, mkv, avi, mov, webm, flv, wmv, m4v, mpg, mpeg, ts, mts, m2ts, 3gp, ogv. Only the audio track is read, directly in memory, with no need to convert the file first.
 
-Gli altri file (PDF, immagini, video senza audio, ...) vengono scartati e segnalati.
+Other files (PDFs, images, videos without audio, ...) are discarded and reported.
 
-## Impostazioni
+## Settings
 
-All'inizio di `transcribe.py`:
+At the top of `transcribe.py`:
 
-| Costante | Significato | Default |
+| Constant | Meaning | Default |
 |---|---|---|
-| `MODEL` | modello Whisper (`large-v3`, `large-v3-turbo`, `medium`, ...) | `large-v3` |
-| `LANGUAGE` | lingua parlata (`"it"`, `"en"`, ... oppure `None` = automatica) | `"it"` |
-| `BEAM_SIZE` | ampiezza della ricerca (più alto = più lento, poco guadagno oltre 5) | `5` |
-| `INITIAL_PROMPT` | termini tecnici del corso, per riconoscerli meglio | `None` |
-| `PARAGRAPH_GAP` | pausa in secondi che genera un nuovo paragrafo | `2.0` |
+| `MODEL` | Whisper model (`large-v3`, `large-v3-turbo`, `medium`, ...) | `large-v3` |
+| `LANGUAGE` | spoken language (`"en"`, `"it"`, ... or `None` = automatic) | `"en"` |
+| `BEAM_SIZE` | search width (higher = slower, little gain above 5) | `5` |
+| `INITIAL_PROMPT` | technical terms of the course, to recognize them better | `None` |
+| `PARAGRAPH_GAP` | pause in seconds that starts a new paragraph | `2.0` |
 
-Se nella cartella `TRANSCRIPTIONS` esiste già un `.txt` con lo stesso nome, il programma chiede se sovrascriverlo.
+If a `.txt` with the same name already exists in `TRANSCRIPTIONS`, the program asks whether to overwrite it.
+
+## GPU
+
+With an NVIDIA GPU, CUDA is used automatically (the model is tested as soon as it is loaded). If the GPU is not usable, the program explains how to fix it and asks whether to continue on the CPU, which is much slower.

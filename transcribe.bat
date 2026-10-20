@@ -1,12 +1,12 @@
 @echo off
-REM Doppio clic per trascrivere i file nella cartella "PUT AUDIO FILE HERE".
+REM Double-click to transcribe the files in the "PUT AUDIO FILE HERE" folder.
 setlocal
 set "HERE=%~dp0"
 set "PYTHONIOENCODING=utf-8"
 set "HF_HUB_DISABLE_IMPLICIT_TOKEN=1"
 
 if not exist "%HERE%.venv\Scripts\python.exe" (
-    echo [*] Primo avvio: creo l'ambiente virtuale e installo le dipendenze...
+    echo [*] First run: creating the virtual environment and installing dependencies...
     python -m venv "%HERE%.venv" || goto :error
     "%HERE%.venv\Scripts\python.exe" -m pip install --upgrade pip
     "%HERE%.venv\Scripts\python.exe" -m pip install -r "%HERE%requirements.txt" || goto :error
@@ -17,6 +17,6 @@ pause
 exit /b
 
 :error
-echo [X] Installazione fallita.
+echo [X] Installation failed.
 pause
 exit /b 1

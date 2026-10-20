@@ -24,7 +24,9 @@ MODEL = "large-v3"
 LANGUAGE = "en"            # "en", "it", ... or None for automatic detection
 BEAM_SIZE = 5
 PARAGRAPH_GAP = 2.0        # pause (s) after which a new paragraph starts in the .txt
-INITIAL_PROMPT = None      # e.g. "TCP, UDP, handshake, Dijkstra" to help with technical terms
+# The context prompt is typed in the console. Whisper keeps only ~220 tokens of it
+# (roughly 800 characters of English text); anything beyond that is cut off.
+PROMPT_MAX_CHARS = 800
 
 # Accepted extensions: audio and video (only the audio track is extracted from videos).
 MEDIA_EXT = {
@@ -97,6 +99,21 @@ def ask(question: str, options: dict[str, str]) -> str:
         print("  Invalid answer, please try again.")
 
 
+def ask_prompt(target: str) -> str | None:
+    """Asks for an optional context prompt (topic, technical terms, names) in the console."""
+    print(f"\nContext prompt for {target}: course topic, technical terms, acronyms, names.\n"
+          "  e.g. \"Computer Networks lecture: TCP, UDP, three-way handshake, Dijkstra, OSPF.\"\n"
+          "  Press Enter to skip.")
+    try:
+        text = input("  > ").strip("﻿ \t")
+    except EOFError:
+        return None
+    if len(text) > PROMPT_MAX_CHARS:
+        print(f"  [!] The prompt is {len(text)} characters long: only about the first "
+              f"{PROMPT_MAX_CHARS} will be used.")
+    return text or None
+
+
 def decode_audio(path: Path, sampling_rate: int = 16000):
     """Extracts the audio track (from a video too) as a mono 16 kHz float32 array, in memory."""
     import av
@@ -165,21 +182,26 @@ def to_paragraphs(segments: list) -> str:
     return "\n\n".join(paragraphs) + "\n"
 
 
-def transcribe_file(model, path: Path, out_path: Path) -> None:
+def transcribe_file(model, path: Path, out_path: Path, prompt: str | None) -> None:
     from tqdm import tqdm
 
     t0 = time.time()
     print("    Extracting audio...")
     audio = decode_audio(path)
+    # The prompt is passed as `hotwords` rather than `initial_prompt`: initial_prompt only
+    # conditions the first 30 s window, while hotwords is repeated in every window,
+    # so the context helps for the whole lecture.
     segments_iter, info = model.transcribe(
         audio,
         language=LANGUAGE,
         beam_size=BEAM_SIZE,
         vad_filter=True,
         vad_parameters={"min_silence_duration_ms": 500},
-        initial_prompt=INITIAL_PROMPT,
+        hotwords=prompt,
     )
     print(f"    Language: {info.language}, duration: {fmt_clock(info.duration)}")
+    if prompt:
+        print(f"    Prompt: {prompt}")
 
     segments = []
     with tqdm(total=round(info.duration, 1), unit="s", desc="    Transcribing",
@@ -227,6 +249,9 @@ def main() -> int:
             ask_each = ask("\nHow do you want to proceed?",
                            {"1": "transcribe all in a row",
                             "2": "ask for confirmation before each file"}) == "2"
+        # Automatic mode: one prompt for all files. Confirmation mode: one prompt per file.
+        shared_prompt = None if ask_each else ask_prompt(
+            "all files" if len(files) > 1 else f"'{files[0].name}'")
         for i, f in enumerate(files, 1):
             out_path = OUTPUT_DIR / f"{f.stem}.txt"
             if ask_each and not confirm_file(f):
@@ -237,11 +262,12 @@ def main() -> int:
                     {"y": "yes", "n": "no, skip"}) == "n":
                 skipped.append(f)
                 continue
+            prompt = ask_prompt(f"'{f.name}'") if ask_each else shared_prompt
             if model is None:
                 model = load_model()
             print(f"\n[{i}/{len(files)}] {f.name}")
             try:
-                transcribe_file(model, f, out_path)
+                transcribe_file(model, f, out_path, prompt)
                 done.append(f)
             except Exception as e:
                 print(f"[X] Error on {f.name}: {e}")
